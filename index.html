@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="bn">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>নাশিদ নোট</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&family=Amiri:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['"Hind Siliguri"', 'sans-serif'],
+              arabic: ['"Amiri"', 'serif'],
+            },
+            colors: {
+              primary: '#10B981', // Emerald 500
+              secondary: '#064E3B', // Emerald 900
+              dark: '#0F172A', // Slate 900
+              card: '#1E293B', // Slate 800
+              text: '#E2E8F0', // Slate 200
+              muted: '#94A3B8', // Slate 400
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #0F172A;
+        color: #E2E8F0;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* Custom scrollbar for webkit */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #0F172A;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #334155;
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #475569;
+      }
+      .rtl-text {
+        direction: rtl;
+        text-align: right;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
