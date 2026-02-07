@@ -37,7 +37,6 @@ export const authService = {
 
     if (error) return { user: null, error: error.message };
     if (data.user) {
-      // Check if email confirmation is required
       if (data.user.identities && data.user.identities.length === 0) {
          return { user: null, error: "এই ইমেইল দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা আছে" };
       }
@@ -63,20 +62,27 @@ export const authService = {
 };
 
 export const dataService = {
-  // Database Functions
-  getNasheeds: async (): Promise<Nasheed[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return [];
+  // Database Functions - Optimized for Speed
+  getNasheeds: async (userId?: string): Promise<Nasheed[]> => {
+    // Optimization: Use provided ID or get from session (local) instead of getUser (remote network call)
+    let targetUserId = userId;
+    
+    if (!targetUserId) {
+      const { data } = await supabase.auth.getSession();
+      targetUserId = data.session?.user.id;
+    }
+
+    if (!targetUserId) return [];
 
     const { data, error } = await supabase
       .from('nasheeds')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', targetUserId)
       .order('updated_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching nasheeds:', error);
-      return [];
+      throw error;
     }
 
     // Map DB columns to App Types
@@ -92,17 +98,18 @@ export const dataService = {
   },
 
   saveNasheed: async (nasheed: Nasheed): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("User not logged in");
+    // We can use getSession here too for speed, as reliability is handled by RLS on server
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error("User not logged in");
 
     // Map App Types to DB columns
     const dbPayload = {
-      id: nasheed.id, // Assuming UUID is generated on client or valid
+      id: nasheed.id, 
       title: nasheed.title,
       lyrics: nasheed.lyrics,
       updated_at: new Date().toISOString(),
-      created_at: new Date(nasheed.createdAt).toISOString(), // Keep original creation time
-      user_id: user.id,
+      created_at: new Date(nasheed.createdAt).toISOString(),
+      user_id: session.user.id,
       is_favorite: nasheed.isFavorite
     };
 
@@ -123,13 +130,11 @@ export const dataService = {
   }
 };
 
-// Export a combined service object to maintain compatibility where possible,
-// but consumers should prefer the specific services.
 export const mockService = {
   signIn: authService.signIn,
   signUp: authService.signUp,
   signOut: authService.signOut,
-  getCurrentUser: authService.getCurrentUser, // WARNING: This is now Async!
+  getCurrentUser: authService.getCurrentUser,
   getNasheeds: dataService.getNasheeds,
   saveNasheed: dataService.saveNasheed,
   deleteNasheed: dataService.deleteNasheed

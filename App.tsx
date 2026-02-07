@@ -13,14 +13,19 @@ const App: React.FC = () => {
   const [activeNasheed, setActiveNasheed] = useState<Nasheed | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Optimized Data Loading
+  // Optimized Data Loading with Caching
   const loadNasheeds = useCallback(async (userId: string) => {
     try {
-      // Pass userId explicitly to ensure we query for the correct user immediately
-      const data = await dataService.getNasheeds(); 
+      // Fetch fresh data
+      const data = await dataService.getNasheeds(userId); 
+      
+      // Update State
       setNasheeds(data);
+      
+      // Update Cache
+      localStorage.setItem(`nasheeds_${userId}`, JSON.stringify(data));
     } catch (error) {
-      console.error("Failed to load nasheeds", error);
+      console.error("Failed to load nasheeds from server", error);
     }
   }, []);
 
@@ -29,20 +34,41 @@ const App: React.FC = () => {
 
     const initializeSession = async () => {
       try {
-        // 1. Get initial session
+        // 1. Check for existing session first (fast local check)
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user && mounted) {
           const currentUser = { id: session.user.id, email: session.user.email || '' };
           setUser(currentUser);
           setView(ViewState.HOME);
+          
+          // SPEED OPTIMIZATION: Load from LocalStorage Cache immediately
+          const cachedData = localStorage.getItem(`nasheeds_${currentUser.id}`);
+          if (cachedData) {
+            try {
+              const parsed = JSON.parse(cachedData);
+              if (Array.isArray(parsed)) {
+                setNasheeds(parsed);
+                // If we have cache, stop loading spinner immediately so app feels instant
+                setLoading(false);
+              }
+            } catch (e) {
+              console.error("Cache parse error", e);
+            }
+          }
+
+          // Then fetch fresh data in background
           await loadNasheeds(currentUser.id);
+          
+          // Ensure loading is off (in case no cache existed)
+          if (mounted) setLoading(false);
+
         } else if (mounted) {
            setView(ViewState.AUTH);
+           setLoading(false);
         }
       } catch (error) {
         console.error("Session init error", error);
-      } finally {
         if (mounted) setLoading(false);
       }
     };
@@ -57,8 +83,16 @@ const App: React.FC = () => {
         const newUser = { id: session.user.id, email: session.user.email || '' };
         setUser(newUser);
         setView(ViewState.HOME);
+        
+        // Try cache for this user
+        const cached = localStorage.getItem(`nasheeds_${newUser.id}`);
+        if (cached) setNasheeds(JSON.parse(cached));
+        
         await loadNasheeds(newUser.id);
       } else if (event === 'SIGNED_OUT') {
+        // Optional: Clear cache on logout for security
+        if (user) localStorage.removeItem(`nasheeds_${user.id}`);
+        
         setUser(null);
         setNasheeds([]);
         setActiveNasheed(null);
@@ -73,25 +107,27 @@ const App: React.FC = () => {
   }, [loadNasheeds]);
 
   const handleLogin = (loggedInUser: User) => {
-    // Optimistic update
     setUser(loggedInUser);
     setView(ViewState.HOME);
     loadNasheeds(loggedInUser.id);
   };
 
   const handleLogout = async () => {
+    if (user) localStorage.removeItem(`nasheeds_${user.id}`);
     await authService.signOut();
-    // State cleared by subscription
   };
 
   const handleSaveNasheed = async (nasheed: Nasheed) => {
     // Optimistic UI update for immediate feedback
     const isNew = !nasheeds.find(n => n.id === nasheed.id);
-    setNasheeds(prev => {
-      if (isNew) return [nasheed, ...prev];
-      return prev.map(n => n.id === nasheed.id ? nasheed : n);
-    });
+    const updatedList = isNew 
+      ? [nasheed, ...nasheeds] 
+      : nasheeds.map(n => n.id === nasheed.id ? nasheed : n);
     
+    setNasheeds(updatedList);
+    // Update cache immediately so next reload is fast even if offline
+    if (user) localStorage.setItem(`nasheeds_${user.id}`, JSON.stringify(updatedList));
+
     setView(ViewState.HOME); // Go back immediately
 
     try {
@@ -106,7 +142,10 @@ const App: React.FC = () => {
 
   const handleDeleteNasheed = async (id: string) => {
     // Optimistic UI update
-    setNasheeds(prev => prev.filter(n => n.id !== id));
+    const updatedList = nasheeds.filter(n => n.id !== id);
+    setNasheeds(updatedList);
+    if (user) localStorage.setItem(`nasheeds_${user.id}`, JSON.stringify(updatedList));
+
     setActiveNasheed(null);
     setView(ViewState.HOME);
 
@@ -115,7 +154,6 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Delete failed", e);
       alert("মুছে ফেলা যায়নি, আবার চেষ্টা করুন");
-      // Revert if needed (omitted for simplicity)
       if (user) loadNasheeds(user.id);
     }
   };
@@ -173,6 +211,11 @@ const App: React.FC = () => {
         setActiveNasheed(nasheed);
         setView(ViewState.READER);
       }}
+      onEdit={(nasheed) => {
+        setActiveNasheed(nasheed);
+        setView(ViewState.EDITOR);
+      }}
+      onDelete={handleDeleteNasheed}
       onLogout={handleLogout}
     />
   );

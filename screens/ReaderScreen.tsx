@@ -34,10 +34,10 @@ export const ReaderScreen: React.FC<ReaderScreenProps> = ({ nasheed, onBack, onE
         </button>
       </div>
 
-      <div className="flex-1 px-6 pb-20 max-w-2xl mx-auto w-full">
-        <div className="mb-8 text-center space-y-2">
-          <h1 className="text-3xl font-bold text-white leading-tight">{nasheed.title}</h1>
-          <p className="text-xs text-muted uppercase tracking-wider">
+      <div className="flex-1 px-6 pb-20 max-w-2xl mx-auto w-full -mt-2">
+        <div className="mb-5 text-center">
+          <h1 className="text-2xl font-bold text-white leading-tight font-sans">{nasheed.title}</h1>
+          <p className="text-sm text-emerald-400/80 font-bold font-sans mt-1 leading-relaxed">
             {formatDate(nasheed.updatedAt)}
           </p>
         </div>
