@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Header } from '../components/Header';
 import { Nasheed } from '../types';
 import { generateId, isArabic } from '../utils';
@@ -22,12 +22,25 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
   const [title, setTitle] = useState(initialData?.title || '');
   const [lyrics, setLyrics] = useState(initialData?.lyrics || '');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea
+  // Auto-resize textarea efficiently
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
+
+  // Adjust height on mount and when lyrics change
+  useLayoutEffect(() => {
+    adjustTextareaHeight();
+  }, [lyrics]);
+
   const handleLyricsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setLyrics(e.target.value);
-    e.target.style.height = 'auto';
-    e.target.style.height = e.target.scrollHeight + 'px';
+    // Don't manually adjust style here, let useLayoutEffect handle it to batch updates
   };
 
   const handleSave = () => {
@@ -47,7 +60,8 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
     onSave(nasheed);
   };
 
-  const isRTL = isArabic(lyrics);
+  // Check direction only on first 50 chars for performance
+  const isRTL = isArabic(lyrics.slice(0, 50));
 
   return (
     <div className="min-h-screen bg-dark flex flex-col">
@@ -80,6 +94,7 @@ export const EditorScreen: React.FC<EditorScreenProps> = ({
         />
         
         <textarea
+          ref={textareaRef}
           value={lyrics}
           onChange={handleLyricsChange}
           placeholder="এখানে লিরিক লিখুন..."

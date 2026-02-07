@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Header } from '../components/Header';
 import { EmptyState } from '../components/EmptyState';
 import { Nasheed, User } from '../types';
@@ -21,17 +21,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const [search, setSearch] = useState('');
 
-  const filteredNasheeds = nasheeds.filter(n => 
-    n.title.toLowerCase().includes(search.toLowerCase()) || 
-    n.lyrics.toLowerCase().includes(search.toLowerCase())
-  );
+  // Optimize filtering with useMemo
+  // This prevents re-calculating the filter on every render unless search or nasheeds change
+  const filteredNasheeds = useMemo(() => {
+    const lowerSearch = search.toLowerCase();
+    if (!lowerSearch) return nasheeds;
+
+    return nasheeds.filter(n => 
+      n.title.toLowerCase().includes(lowerSearch) || 
+      n.lyrics.toLowerCase().includes(lowerSearch)
+    );
+  }, [nasheeds, search]);
 
   return (
     <div className="min-h-screen bg-dark flex flex-col relative">
       <Header 
         leftAction={
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-sm">
+            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-sm select-none">
               {user.email[0].toUpperCase()}
             </div>
           </div>
@@ -66,28 +73,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             subMessage={search ? 'অন্য কিছু লিখে চেষ্টা করুন' : 'নতুন একটি লিরিক যোগ করতে নিচের বাটনে চাপ দিন'}
           />
         ) : (
-          filteredNasheeds.map(nasheed => (
-            <div 
-              key={nasheed.id}
-              onClick={() => onSelect(nasheed)}
-              className="group bg-card hover:bg-slate-700/50 border border-slate-700/50 rounded-xl p-4 transition-all active:scale-[0.99] cursor-pointer"
-            >
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="font-semibold text-lg text-slate-100 line-clamp-1 group-hover:text-emerald-400 transition-colors">
-                  {nasheed.title}
-                </h3>
-              </div>
-              <p 
-                className={`text-sm text-slate-400 line-clamp-2 mb-3 ${isArabic(nasheed.lyrics) ? 'font-arabic text-right' : ''}`}
-                style={{ direction: isArabic(nasheed.lyrics) ? 'rtl' : 'ltr' }}
+          filteredNasheeds.map(nasheed => {
+            // Check language only on the preview text to save performance on long strings
+            const previewText = nasheed.lyrics.slice(0, 100);
+            const isRTL = isArabic(previewText);
+            
+            return (
+              <div 
+                key={nasheed.id}
+                onClick={() => onSelect(nasheed)}
+                className="group bg-card hover:bg-slate-700/50 border border-slate-700/50 rounded-xl p-4 transition-all active:scale-[0.99] cursor-pointer"
               >
-                {nasheed.lyrics}
-              </p>
-              <div className="flex justify-between items-center text-xs text-slate-600">
-                <span>{formatDate(nasheed.updatedAt)}</span>
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="font-semibold text-lg text-slate-100 line-clamp-1 group-hover:text-emerald-400 transition-colors">
+                    {nasheed.title}
+                  </h3>
+                </div>
+                <p 
+                  className={`text-sm text-slate-400 line-clamp-2 mb-3 ${isRTL ? 'font-arabic text-right' : ''}`}
+                  style={{ direction: isRTL ? 'rtl' : 'ltr' }}
+                >
+                  {nasheed.lyrics}
+                </p>
+                <div className="flex justify-between items-center text-xs text-slate-600">
+                  <span>{formatDate(nasheed.updatedAt)}</span>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 

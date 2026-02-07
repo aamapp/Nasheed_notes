@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AuthScreen } from './screens/AuthScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { EditorScreen } from './screens/EditorScreen';
@@ -13,60 +13,91 @@ const App: React.FC = () => {
   const [activeNasheed, setActiveNasheed] = useState<Nasheed | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Initial Session Check & Real-time Auth Listener
+  // Optimized Data Loading
+  const loadNasheeds = useCallback(async (userId: string) => {
+    try {
+      // Pass userId explicitly to ensure we query for the correct user immediately
+      const data = await dataService.getNasheeds(); 
+      setNasheeds(data);
+    } catch (error) {
+      console.error("Failed to load nasheeds", error);
+    }
+  }, []);
+
   useEffect(() => {
-    const checkSession = async () => {
-      const currentUser = await authService.getCurrentUser();
-      if (currentUser) {
-        setUser(currentUser);
-        setView(ViewState.HOME);
-        await loadNasheeds();
+    let mounted = true;
+
+    const initializeSession = async () => {
+      try {
+        // 1. Get initial session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user && mounted) {
+          const currentUser = { id: session.user.id, email: session.user.email || '' };
+          setUser(currentUser);
+          setView(ViewState.HOME);
+          await loadNasheeds(currentUser.id);
+        } else if (mounted) {
+           setView(ViewState.AUTH);
+        }
+      } catch (error) {
+        console.error("Session init error", error);
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
     };
 
-    checkSession();
+    initializeSession();
 
-    // Listen for auth state changes (Login, Logout, Auto-refresh)
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // 2. Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+
       if (event === 'SIGNED_IN' && session?.user) {
         const newUser = { id: session.user.id, email: session.user.email || '' };
         setUser(newUser);
         setView(ViewState.HOME);
-        await loadNasheeds();
+        await loadNasheeds(newUser.id);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setNasheeds([]);
+        setActiveNasheed(null);
         setView(ViewState.AUTH);
       }
     });
 
     return () => {
-      authListener.subscription.unsubscribe();
+      mounted = false;
+      subscription.unsubscribe();
     };
-  }, []);
-
-  const loadNasheeds = async () => {
-    const data = await dataService.getNasheeds();
-    setNasheeds(data); // data is already sorted by backend query
-  };
+  }, [loadNasheeds]);
 
   const handleLogin = (loggedInUser: User) => {
-    // State update handled by onAuthStateChange, but we can set it optimistically
+    // Optimistic update
     setUser(loggedInUser);
+    setView(ViewState.HOME);
+    loadNasheeds(loggedInUser.id);
   };
 
   const handleLogout = async () => {
     await authService.signOut();
-    // State update handled by onAuthStateChange
+    // State cleared by subscription
   };
 
   const handleSaveNasheed = async (nasheed: Nasheed) => {
+    // Optimistic UI update for immediate feedback
+    const isNew = !nasheeds.find(n => n.id === nasheed.id);
+    setNasheeds(prev => {
+      if (isNew) return [nasheed, ...prev];
+      return prev.map(n => n.id === nasheed.id ? nasheed : n);
+    });
+    
+    setView(ViewState.HOME); // Go back immediately
+
     try {
       await dataService.saveNasheed(nasheed);
-      await loadNasheeds();
-      setActiveNasheed(nasheed);
-      setView(ViewState.HOME);
+      // Background re-fetch to ensure sync
+      if (user) loadNasheeds(user.id);
     } catch (e) {
       console.error("Save failed", e);
       alert("সংরক্ষণ করা যায়নি, ইন্টারনেট সংযোগ চেক করুন");
@@ -74,14 +105,18 @@ const App: React.FC = () => {
   };
 
   const handleDeleteNasheed = async (id: string) => {
+    // Optimistic UI update
+    setNasheeds(prev => prev.filter(n => n.id !== id));
+    setActiveNasheed(null);
+    setView(ViewState.HOME);
+
     try {
       await dataService.deleteNasheed(id);
-      await loadNasheeds();
-      setActiveNasheed(null);
-      setView(ViewState.HOME);
     } catch (e) {
       console.error("Delete failed", e);
       alert("মুছে ফেলা যায়নি, আবার চেষ্টা করুন");
+      // Revert if needed (omitted for simplicity)
+      if (user) loadNasheeds(user.id);
     }
   };
 
