@@ -7,13 +7,37 @@ import { Nasheed, User, ViewState } from './types';
 import { authService, dataService, supabase } from './services/supabaseClient';
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [view, setView] = useState<ViewState>(ViewState.AUTH);
-  const [nasheeds, setNasheeds] = useState<Nasheed[]>([]);
-  const [activeNasheed, setActiveNasheed] = useState<Nasheed | null>(null);
-  const [loading, setLoading] = useState(true);
+  // INSTANT LOAD: Initialize state directly from localStorage if available
+  const [user, setUser] = useState<User | null>(() => {
+    const id = localStorage.getItem('lastUserId');
+    const email = localStorage.getItem('lastUserEmail');
+    if (id && email) return { id, email };
+    return null;
+  });
 
-  // Optimized Data Loading with Caching
+  const [view, setView] = useState<ViewState>(() => {
+    return localStorage.getItem('lastUserId') ? ViewState.HOME : ViewState.AUTH;
+  });
+
+  const [nasheeds, setNasheeds] = useState<Nasheed[]>(() => {
+    const id = localStorage.getItem('lastUserId');
+    if (id) {
+      const cached = localStorage.getItem(`nasheeds_${id}`);
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch { return []; }
+      }
+    }
+    return [];
+  });
+
+  const [activeNasheed, setActiveNasheed] = useState<Nasheed | null>(null);
+  
+  // If we have user data from cache, we are not "loading" visually
+  const [loading, setLoading] = useState(() => !localStorage.getItem('lastUserId'));
+
+  // Optimized Data Loading
   const loadNasheeds = useCallback(async (userId: string) => {
     try {
       // Fetch fresh data
@@ -34,48 +58,47 @@ const App: React.FC = () => {
 
     const initializeSession = async () => {
       try {
-        // 1. Check for existing session first (fast local check)
+        // Check session
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user && mounted) {
           const currentUser = { id: session.user.id, email: session.user.email || '' };
-          setUser(currentUser);
-          setView(ViewState.HOME);
           
-          // SPEED OPTIMIZATION: Load from LocalStorage Cache immediately
-          const cachedData = localStorage.getItem(`nasheeds_${currentUser.id}`);
-          if (cachedData) {
-            try {
-              const parsed = JSON.parse(cachedData);
-              if (Array.isArray(parsed)) {
-                setNasheeds(parsed);
-                // If we have cache, stop loading spinner immediately so app feels instant
-                setLoading(false);
-              }
-            } catch (e) {
-              console.error("Cache parse error", e);
-            }
-          }
+          // Update State (Confirming the optimistic state)
+          setUser(currentUser);
+          
+          // Persist user info for next cold start
+          localStorage.setItem('lastUserId', currentUser.id);
+          localStorage.setItem('lastUserEmail', currentUser.email);
 
-          // Then fetch fresh data in background
+          if (view === ViewState.AUTH) {
+            setView(ViewState.HOME);
+          }
+          
+          // Background fetch to sync latest data
           await loadNasheeds(currentUser.id);
           
-          // Ensure loading is off (in case no cache existed)
-          if (mounted) setLoading(false);
-
         } else if (mounted) {
+           // No valid session found
+           if (localStorage.getItem('lastUserId')) {
+             // We were optimistically logged in, but session is dead. Logout.
+             localStorage.removeItem('lastUserId');
+             localStorage.removeItem('lastUserEmail');
+             setUser(null);
+             setNasheeds([]);
+           }
            setView(ViewState.AUTH);
-           setLoading(false);
         }
       } catch (error) {
         console.error("Session init error", error);
+      } finally {
         if (mounted) setLoading(false);
       }
     };
 
     initializeSession();
 
-    // 2. Listen for auth changes
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
 
@@ -84,14 +107,17 @@ const App: React.FC = () => {
         setUser(newUser);
         setView(ViewState.HOME);
         
-        // Try cache for this user
-        const cached = localStorage.getItem(`nasheeds_${newUser.id}`);
-        if (cached) setNasheeds(JSON.parse(cached));
+        localStorage.setItem('lastUserId', newUser.id);
+        localStorage.setItem('lastUserEmail', newUser.email);
         
         await loadNasheeds(newUser.id);
       } else if (event === 'SIGNED_OUT') {
-        // Optional: Clear cache on logout for security
-        if (user) localStorage.removeItem(`nasheeds_${user.id}`);
+        const currentUserId = user?.id || localStorage.getItem('lastUserId');
+        if (currentUserId) {
+          localStorage.removeItem(`nasheeds_${currentUserId}`);
+        }
+        localStorage.removeItem('lastUserId');
+        localStorage.removeItem('lastUserEmail');
         
         setUser(null);
         setNasheeds([]);
@@ -104,35 +130,43 @@ const App: React.FC = () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [loadNasheeds]);
+  }, [loadNasheeds, user?.id, view]);
 
   const handleLogin = (loggedInUser: User) => {
+    localStorage.setItem('lastUserId', loggedInUser.id);
+    localStorage.setItem('lastUserEmail', loggedInUser.email);
     setUser(loggedInUser);
     setView(ViewState.HOME);
     loadNasheeds(loggedInUser.id);
   };
 
   const handleLogout = async () => {
-    if (user) localStorage.removeItem(`nasheeds_${user.id}`);
+    const id = user?.id || localStorage.getItem('lastUserId');
+    if (id) {
+        localStorage.removeItem(`nasheeds_${id}`);
+        localStorage.removeItem('lastUserId');
+        localStorage.removeItem('lastUserEmail');
+    }
     await authService.signOut();
+    setUser(null);
+    setNasheeds([]);
+    setActiveNasheed(null);
+    setView(ViewState.AUTH);
   };
 
   const handleSaveNasheed = async (nasheed: Nasheed) => {
-    // Optimistic UI update for immediate feedback
     const isNew = !nasheeds.find(n => n.id === nasheed.id);
     const updatedList = isNew 
       ? [nasheed, ...nasheeds] 
       : nasheeds.map(n => n.id === nasheed.id ? nasheed : n);
     
     setNasheeds(updatedList);
-    // Update cache immediately so next reload is fast even if offline
     if (user) localStorage.setItem(`nasheeds_${user.id}`, JSON.stringify(updatedList));
 
-    setView(ViewState.HOME); // Go back immediately
+    setView(ViewState.HOME);
 
     try {
       await dataService.saveNasheed(nasheed);
-      // Background re-fetch to ensure sync
       if (user) loadNasheeds(user.id);
     } catch (e) {
       console.error("Save failed", e);
@@ -141,7 +175,6 @@ const App: React.FC = () => {
   };
 
   const handleDeleteNasheed = async (id: string) => {
-    // Optimistic UI update
     const updatedList = nasheeds.filter(n => n.id !== id);
     setNasheeds(updatedList);
     if (user) localStorage.setItem(`nasheeds_${user.id}`, JSON.stringify(updatedList));
@@ -166,7 +199,6 @@ const App: React.FC = () => {
     );
   }
 
-  // View Routing
   if (!user || view === ViewState.AUTH) {
     return <AuthScreen onLogin={handleLogin} />;
   }
